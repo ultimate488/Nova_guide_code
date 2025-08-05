@@ -1,0 +1,33 @@
+{
+    "core_commands": [
+        "this is",
+        "go to",
+        "stop",
+        "help",
+        "what's in front of me",
+        "what's around me",
+        "go outside",
+        "repeat last instruction",
+        "list known rooms",
+        "delete room",
+        "shutdown",
+        "yes",
+        "no"
+    ],
+    "known_locations": {
+        "kitchen": {
+            "coordinates": [2.3, 5.0],
+            "lidar_signature": "simulated_lidar_data",
+            "created_at": "2025-08-04T12:30Z"
+        },
+        "bathroom": {
+            "coordinates": [1.1, 1.1],
+            "lidar_signature": "simulated_lidar_data",
+            "created_at": "2025-08-04T12:35Z"
+        }
+    },
+    "hardware_settings": {
+        "motor_speed": 50,
+        "wake_word_sensitivity": 0.9
+    }
+}

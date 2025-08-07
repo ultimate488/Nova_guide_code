@@ -1,41 +1,63 @@
 # voice/tts.py
 
-import pyttsx3
+import multiprocessing
+import queue
+from gtts import gTTS
+from playsound import playsound
+import tempfile
+import os
 
-class VoiceFeedback:
+class AudioProcess(multiprocessing.Process):
     """
-    A class to handle text-to-speech (TTS) for giving vocal feedback.
-    Uses the pyttsx3 library which works offline.
+    A dedicated, isolated process for handling all text-to-speech requests.
+
+    This "genius" version uses a robust two-step pipeline:
+    1. gTTS: Converts text to a high-quality MP3 file.
+    2. playsound: Plays the generated audio file.
+    This architecture is extremely reliable and avoids the common pitfalls of
+    using complex TTS engines directly inside a child process.
     """
-    def __init__(self):
-        """Initializes the TTS engine and sets its properties."""
-        try:
-            self.engine = pyttsx3.init()
-            self.engine.setProperty('rate', 150)
-            
-            print("🎤 Voice Feedback System Initialized.")
+    def __init__(self, audio_queue):
+        super().__init__()
+        self.audio_queue = audio_queue
+        # Make this a daemon process so it exits when the main program does
+        self.daemon = True
 
-        except Exception as e:
-            self.engine = None
-            print(f"Error initializing pyttsx3: {e}. Voice feedback will be disabled.")
+    def run(self):
+        """The main loop for the audio server process."""
+        print("🎤 Legendary Audio Server Process started.")
+        while True:
+            try:
+                # This call will block efficiently, waiting for a message.
+                text = self.audio_queue.get()
 
-    def say(self, text):
-        """
-        Speaks the given text aloud.
-        """
-        if self.engine:
-            self.engine.say(text)
-            self.engine.runAndWait()
-        else:
-            print(f"🎤 [DUMMY] FEEDBACK: {text}")
+                # A 'None' message is our signal to shut down gracefully.
+                if text is None:
+                    print("🎤 Audio Server received shutdown signal.")
+                    break
 
-    def stop(self):
-        """Stops the current speech playback."""
-        if self.engine:
-            self.engine.stop()
+                print(f"AudioProcess speaking: '{text}'")
 
-# Example usage for testing this module
-if __name__ == '__main__':
-    tts = VoiceFeedback()
-    tts.say("Hello, I am NOVA guide. Testing, one, two, three.")
-    tts.say("I can now speak using my legendary code.")
+                # 1. Generate the speech and save it to a temporary file
+                tts = gTTS(text=text, lang='en', tld='co.in') # 'co.in' for Indian English accent
+                
+                # Using a temporary file is the most compatible way across OSes
+                with tempfile.NamedTemporaryFile(delete=True, suffix='.mp3') as fp:
+                    temp_filename = fp.name
+                
+                tts.save(temp_filename)
+                
+                # 2. Play the generated audio file
+                playsound(temp_filename)
+                
+                # 3. Clean up the temporary file
+                os.remove(temp_filename)
+
+
+            except queue.Empty:
+                continue # Should not happen with blocking .get()
+            except Exception as e:
+                # Catch potential gTTS/playsound errors (e.g., no internet connection)
+                print(f"Error in AudioProcess: {e}")
+
+        print("🎤 Audio Server Process shutting down.")

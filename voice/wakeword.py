@@ -3,19 +3,26 @@
 import os
 import sys
 import pvporcupine
-from pvporcupine import Porcupine
 from pvrecorder import PvRecorder
 from threading import Thread, Event
 import time
 
-# Import the AccessKey and model path from our config file
-from config import PICOVOICE_ACCESS_KEY, NOVA_WAKE_WORD_MODEL_PATH, PICOVOICE_SENSITIVITY
+# Assuming config.py has your keys and paths
+try:
+    from config import PICOVOICE_ACCESS_KEY, NOVA_WAKE_WORD_MODEL_PATH, PICOVOICE_SENSITIVITY
+except ImportError:
+    print("Error: Could not import from config.py. Please ensure it exists and is configured.")
+    # Provide dummy values to prevent crashing if config is missing
+    PICOVOICE_ACCESS_KEY = "YOUR_ACCESS_KEY_HERE"
+    NOVA_WAKE_WORD_MODEL_PATH = "" 
+    PICOVOICE_SENSITIVITY = 0.5
+
 
 class WakeWordDetector(Thread):
     """
-    A class to detect a wake word using Picovoice Porcupine.
-    This runs in its own thread, continuously listening for the wake word.
-    When the wake word is detected, it sets a threading.Event.
+    A "single-shot" thread to detect a wake word.
+    When detected, it sets an event and then terminates itself cleanly,
+    releasing all audio resources.
     """
     def __init__(self, wake_word_detected_event):
         super().__init__()
@@ -25,53 +32,49 @@ class WakeWordDetector(Thread):
         self.is_listening = True
 
         try:
+            if not NOVA_WAKE_WORD_MODEL_PATH:
+                raise ValueError("Wake word model path is not set in config.py")
+            
             self.porcupine = pvporcupine.create(
                 access_key=PICOVOICE_ACCESS_KEY,
                 keyword_paths=[NOVA_WAKE_WORD_MODEL_PATH],
                 sensitivities=[PICOVOICE_SENSITIVITY]
             )
-            
             self.recorder = PvRecorder(
                 frame_length=self.porcupine.frame_length,
-                device_index=-1 # Use the default microphone
+                device_index=-1
             )
-            
-            print(f"👁️ Wake Word Detector Initialized. Listening for 'NOVA' with sensitivity {PICOVOICE_SENSITIVITY}...")
-
         except Exception as e:
-            print(f"Error initializing Porcupine or PvRecorder: {e}")
+            print(f"Error initializing Porcupine: {e}")
             self.porcupine = None
-            
+
     def run(self):
-        """Main loop for the thread."""
+        """Main loop for the thread. Runs until wake word is found or stop() is called."""
         if not self.porcupine or not self.recorder:
-            print("Engine or recorder is not initialized. Cannot start listening.")
+            print("Wake word engine not initialized. Cannot listen.")
             return
 
-        print(f"Starting continuous listening for wake word 'NOVA'...")
+        print(f"Starting listening for wake word 'NOVA'...")
         try:
             self.recorder.start()
             while self.is_listening:
                 pcm = self.recorder.read()
                 result = self.porcupine.process(pcm)
-
                 if result >= 0:
                     print(f"🚨 Wake word 'NOVA' detected!")
                     self.wake_word_detected_event.set()
-                    self.is_listening = False
-                    
+                    self.is_listening = False # Exit the loop
         except Exception as e:
             print(f"Error in wake word audio stream: {e}", file=sys.stderr)
+        finally:
+            # ✅ GENIUS FIX 4: This block ALWAYS runs, guaranteeing resource release.
+            if self.recorder:
+                self.recorder.stop()
+                self.recorder.delete()
+            if self.porcupine:
+                self.porcupine.delete()
+            print("Wake word listener thread finished and resources released.")
 
     def stop(self):
-        """Stops the listening thread gracefully."""
+        """Public method to signal the listening loop to stop from outside."""
         self.is_listening = False
-        if self.recorder:
-            self.recorder.stop()
-            
-    def __del__(self):
-        """Cleans up the resources."""
-        if self.porcupine:
-            self.porcupine.delete()
-        if self.recorder:
-            self.recorder.delete()
